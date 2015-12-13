@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Mappe interattive con d3.js</title>
+    <meta charset="utf-8">
+    <meta name="author" content="Daniele Pennati">
+    <meta name="description" content="MapTime Milano - Mappe interattive con d3.js">
+    <meta name="copyright" content="Daniele Pennati - bbox.it">
+    <link href="stili.css" rel="stylesheet" />
+  </head>
+  <body id="dens">
+    <h1>Densità abitativa ab/kmq</h1>
+    <div id="container"></div>
+    <script src="js/d3.v3.min.js"></script>
+    <script src="js/queue.v1.min.js"></script>
+    <script src="js/topojson.v1.min.js"></script>
+    <script src="js/jquery.min.js" ></script>
+    <script>
+      //dichiaro tutte le variabili che useremo
+      var width, height, svg, g, projection, path, tooltip, offsetL, offsetT;
+
+      //creo l'svg della mappa
+      width = $('#container').width();
+      height = $('#container').height();
+      
+      svg = d3.select("#container").append("svg")
+              .attr("width", width)
+              .attr("height", height);
+      
+      g = svg.append("g");
+
+      //imposto la proiezione della mappa
+      projection = d3.geo.transverseMercator()
+                      .rotate([-9, 0, 0])
+                      .scale(3900)
+                      .center([5, 42])
+                      .translate([width / 2, height / 2]);
+      
+      //imposto la formula per calcolare il path delle geometrie
+      path = d3.geo.path()
+              .projection(projection);
+
+      //creo il contenitore per i tooltips e imposto la classe hidden per tenerlo nascosto
+      tooltip = d3.select("#container").append("div").attr("class", "tooltip hidden");
+      //ottengo la distanza del container dal bordo del viewport
+      offsetL = document.getElementById('container').offsetLeft+20;
+      offsetT =document.getElementById('container').offsetTop-10;
+
+      //carico i file di dati
+      queue()
+        .defer(d3.json, "data/ita_com.json")
+        .defer(d3.tsv, "data/ita_density_2011.txt")
+        .await(ready);
+
+      function ready(error, base, dati) {
+        //loggiamo i dati per capire come sono fatti
+        console.log(dati);
+
+        //disegno i confii comunali
+        g.append("g")
+         .attr("class", "comuni")
+          .selectAll(".conf_comun")
+          .data(topojson.feature(base, base.objects.com2011_g).features)
+          .enter().append("path")
+          .attr("class", "conf_comun")
+          .style("fill", '#efefef')
+          .attr("d", path)
+          .on("mousemove", function(d,i) {
+            //calcolo la posizione del mouse rispetto al container della mappa
+            var mouse = d3.mouse(svg.node()).map( function(d) { return parseInt(d); } );
+            tooltip
+              .classed("hidden", false)
+              .attr("style", "left:"+(mouse[0]+offsetL)+"px;top:"+(mouse[1]+offsetT)+"px")
+              .html(d.properties.NOME_COM + ' '+d.id)
+          })
+          .on("mouseout",  function(d,i) {
+            tooltip.classed("hidden", true)
+          });
+          
+      };
+    </script>
+  </body>
+</html>

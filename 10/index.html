@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Mappe interattive con d3.js</title>
+    <meta charset="utf-8">
+    <meta name="author" content="Daniele Pennati">
+    <meta name="description" content="MapTime Milano - Mappe interattive con d3.js">
+    <meta name="copyright" content="Daniele Pennati - bbox.it">
+    <link href="stili.css" rel="stylesheet" />
+  </head>
+  <body id="dens">
+    <h1>Densità abitativa ab/kmq</h1>
+    <div id="container"></div>
+    <!-- aggiungiamo un contenitore per la legenda -->
+    <div id="legend"></div>
+    <script src="js/d3.v3.min.js"></script>
+    <script src="js/queue.v1.min.js"></script>
+    <script src="js/topojson.v1.min.js"></script>
+    <script src="js/jquery.min.js" ></script>
+    <script>
+      //dichiaro tutte le variabili che useremo
+      var width, height, svg, g, projection, path, tooltip, offsetL, offsetT, color_dens, legend, legendW, legendH, barW, legendData, xAxis, zoom;
+
+      //aggiungo un listener all'evento zoom
+      zoom = d3.behavior.zoom()
+              .scaleExtent([1, 13])
+              .on("zoom", move);
+
+      //creo l'svg della mappa
+      width = $('#container').width();
+      height = $('#container').height();
+      
+      svg = d3.select("#container").append("svg")
+              .attr("width", width)
+              .attr("height", height)
+              .call(zoom);
+      
+      g = svg.append("g");
+
+      //imposto la proiezione della mappa
+      projection = d3.geo.transverseMercator()
+                      .rotate([-9, 0, 0])
+                      .scale(3900)
+                      .center([5, 42])
+                      .translate([width / 2, height / 2]);
+      
+      //imposto la formula per calcolare il path delle geometrie
+      path = d3.geo.path()
+              .projection(projection);
+
+      //creo il contenitore per i tooltips e imposto la classe hidden per tenerlo nascosto
+      tooltip = d3.select("#container").append("div").attr("class", "tooltip hidden");
+      //ottengo la distanza del container dal bordo del viewport
+      offsetL = document.getElementById('container').offsetLeft+20;
+      offsetT =document.getElementById('container').offsetTop-10;
+
+      //definisco la scala cromatica
+      color_dens = d3.scale.threshold()
+        .domain([5, 50, 150, 270, 600, 1000, 2500, 5000])
+        .range(["#2b7a16", "#6ba263", "#abcaa8", "#d5e4d3", "#f0c6bf", "#e8a89e", "#e08a7d", "#d8634e", "#d03a1c"]);
+
+      //creo la legenda
+      legendW = $('#legend').width();
+      legendH = $('#legend').height();
+
+      legend = d3.select("#legend").append("svg")
+          .attr("width", legendW)
+          .attr("height", legendH);
+                
+      legendGroup = legend.append("g")
+                    .attr("class", "legenda")
+                    .attr("transform", "translate(20,20)");
+
+      //creo la scala lineare per convertire i valori di densità in valori di larghezza in px
+      barW = d3.scale.linear()
+              .domain([0 , 5100])
+              .range([0, legendW-40]);
+
+      //creo il dataset per la lgenda rimappando l'array dei colori della mappa
+      //per ogni colore creo un oggetto che contiene il punto di partenza e di fine dell'asse x che deve avere la barra della legenda
+      legendData = color_dens.range().map(function(d, i) {
+            return {
+              x0: i ? barW(color_dens.domain()[i - 1]) : barW.range()[0],
+              x1: i < color_dens.domain().length ? barW(color_dens.domain()[i]) : barW.range()[1],
+              z: d
+            };
+          })
+      //loggo i dati
+      console.log(legendData)
+
+      //creo gli elementi della legenda
+      legendGroup.selectAll("rect")
+          .data(legendData)
+        .enter().append("rect")
+          .attr("height", 8)
+          .attr("x", function(d) { return d.x0; })
+          .attr("width", function(d) { return d.x1 - d.x0; })
+          .style("fill", function(d) { return d.z; });
+
+      //dichiaro l'asse x del grafico della legenda
+      xAxis = d3.svg.axis()
+                .scale(barW)
+                .orient("bottom")
+                .tickSize(13)
+                .tickValues(color_dens.domain())
+                .tickFormat(function(d) { return d });
+
+      //aggiungo l'asse x alla legenda
+      legendGroup.append('g')
+        .attr('class', 'tickContainer')
+        .call(xAxis)
+        .append("text")
+          .attr("class", "caption")
+          .attr("y", -6)
+          .text("Densità abitativa 2011");
+
+      //carico i file di dati
+      queue()
+        .defer(d3.json, "data/ita_com.json")
+        .defer(d3.tsv, "data/ita_density_2011.txt")
+        .await(ready);
+
+      function ready(error, base, dati) {
+        //loggiamo i dati per capire come sono fatti
+        //console.log(dati);
+
+        //creiamo un nuovo oggetto da usare per legare i dati alla mappa
+        var rateById = {};
+        //per ogni dato nel dataset creiamo una nuova proprietà dell'oggetto
+        dati.forEach(function(d) { rateById[d.id] = +d.dens11; });
+        //loggiamo i dati per capire come sono fatti
+        //console.log(rateById);
+
+        //disegno i confii comunali
+        g.append("g")
+         .attr("class", "comuni")
+          .selectAll(".conf_comun")
+          .data(topojson.feature(base, base.objects.com2011_g).features)
+          .enter().append("path")
+          .attr("class", "conf_comun")
+          .style("fill", function(d) {
+            return color_dens( rateById[d.id] );
+          })
+          .attr("d", path)
+          .on("mousemove", function(d,i) {
+            //calcolo la posizione del mouse rispetto al container della mappa
+            var mouse = d3.mouse(svg.node()).map( function(d) { return parseInt(d); } );
+            tooltip
+              .classed("hidden", false)
+              .attr("style", "left:"+(mouse[0]+offsetL)+"px;top:"+(mouse[1]+offsetT)+"px")
+              .html(d.properties.NOME_COM + ': '+rateById[d.id] + ' Ab/Kmq')
+          })
+          .on("mouseout",  function(d,i) {
+            tooltip.classed("hidden", true)
+          });
+          
+      };
+
+      //creo la funzione move
+      function move() {
+        var t = d3.event.translate;
+        var s = d3.event.scale;  
+        
+        //limito il panning
+        t[0] = Math.min(-8 * (s - 1), Math.max(width/1.5 * (1 - s), t[0]));
+        t[1] = Math.min(-35 * (s - 1), Math.max(height/1.05 * (1 - s), t[1]));
+        
+        //eseguo la traslazione
+        zoom.translate(t);
+
+        //scalo lo spessore delle line proporzionalmente al fattore di zoom altrimenti zoommando le linee diventerebbe + spesse
+        g.style("stroke-width", 1 / s).attr("transform", "translate(" + t + "),scale(" + s + ")");
+      }
+    </script>
+  </body>
+</html>
